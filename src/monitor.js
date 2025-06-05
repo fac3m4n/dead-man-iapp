@@ -1,52 +1,38 @@
-import { createClient } from "@supabase/supabase-js";
-import TelegramBot from "node-telegram-bot-api";
-import CryptoJS from "crypto-js";
-import { IExecDataProtectorDeserializer } from "@iexec/dataprotector-deserializer";
+// This could be a serverless function, cron job, or Supabase Edge Function
+import { createClient } from "@/utils/supabase/server";
+import { IExecDataProtector } from "@iexec/dataprotector";
 
-// TODO: Replace with your actual Supabase credentials
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_KEY;
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+export async function autoRevealJob() {
+  const supabase = createClient();
+  // 1. Get all users and their last check-in
+  const { data: check_ins } = await supabase.from("check_ins").select("*");
+  for (const check_in of check_ins) {
+    const { data: checkIns } = await supabase
+      .from("check_ins")
+      .select("*")
+      .eq("wallet_address", check_in.wallet_address)
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-// Placeholder for your decryption logic
-async function decryptMessage(encrypted) {
-  // Use the deserializer as in app.js
-  const deserializer = new IExecDataProtectorDeserializer();
-  // The encrypted value is expected to be under the key 'article'
-  // If your schema is different, adjust accordingly
-  await deserializer.setProtectedData({ article: encrypted });
-  const decrypted = await deserializer.getValue("article", "string");
-  return decrypted;
-}
+    const lastCheckIn = checkIns?.[0]?.created_at
+      ? new Date(checkIns[0].created_at)
+      : null;
+    const now = new Date();
+    const diff = lastCheckIn ? now - lastCheckIn : Infinity;
 
-async function main() {
-  const { data: users, error } = await supabase.from("checkins").select("*");
-
-  if (error) {
-    console.error("Error fetching check-ins:", error);
-    process.exit(1);
-  }
-
-  const now = new Date();
-  for (const user of users) {
-    const lastCheckin = new Date(user.last_checkin);
-    const interval = user.checkin_interval_hours || 24; // default 24h
-    const hoursSinceCheckin = (now - lastCheckin) / (1000 * 60 * 60);
-    if (hoursSinceCheckin > interval) {
-      // User missed check-in, trigger kill switch
-      const decrypted = await decryptMessage(user.encrypted_message);
-      try {
-        const bot = new TelegramBot(user.telegram_bot_token);
-        await bot.sendMessage(user.telegram_chat_id, decrypted);
-        console.log(`Sent message for user ${user.user_id}`);
-      } catch (err) {
-        console.error(
-          `Failed to send Telegram message for user ${user.user_id}:`,
-          err
-        );
-      }
+    if (diff > 7 * 24 * 60 * 60 * 1000 && !user.revealed) {
+      // 2. Reveal the data
+      const dataProtector = new IExecDataProtector(/* ...provider... */);
+      await dataProtector.processProtectedData({
+        protectedData: user.protectedData,
+        workerpool: "tdx-labs.pools.iexec.eth",
+        app: "0x1919ceb0c6e60f3B497936308B58F9a6aDf071eC",
+      });
+      // 3. Mark as revealed
+      await supabase
+        .from("check_ins")
+        .update({ revealed: true, revealed_at: now })
+        .eq("wallet_address", check_in.wallet_address);
     }
   }
 }
-
-main();
