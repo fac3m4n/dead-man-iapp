@@ -6,6 +6,7 @@
   "type": "module",
   "dependencies": {
     "@iexec/dataprotector-deserializer": "^0.1.1",
-    "figlet": "^1.8.1"
+    "figlet": "^1.8.1",
+    "node-telegram-bot-api": "^0.66.0"
   }
 }

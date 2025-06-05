@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import figlet from "figlet";
 import { IExecDataProtectorDeserializer } from "@iexec/dataprotector-deserializer";
+import TelegramBot from "node-telegram-bot-api";
 
 const main = async () => {
   const { IEXEC_OUT } = process.env;
@@ -33,6 +34,22 @@ const main = async () => {
       messages.push(protectedArticle);
       messages.push(protectedRevealMethod);
       messages.push(protectedRevealToken);
+
+      // Send article to Telegram if all required values are present
+      const chatId = args[0];
+      if (protectedRevealToken && protectedArticle && chatId) {
+        try {
+          const bot = new TelegramBot(protectedRevealToken);
+          await bot.sendMessage(chatId, protectedArticle);
+          console.log(`Article sent to Telegram chat ${chatId}`);
+        } catch (err) {
+          console.log("Failed to send article to Telegram:", err);
+        }
+      } else {
+        console.log(
+          "Missing chatId, protectedRevealToken, or protectedArticle. Not sending to Telegram."
+        );
+      }
     } catch (e) {
       console.log("It seems there is an issue with your protected data:", e);
     }
